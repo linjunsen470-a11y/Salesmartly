@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { copyFile, mkdir, open, readFile, realpath, rename, stat, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { BatchOptions, CaptureBatch, CaptureResult, Customer, MediaJob, Message, Scope } from '../../packages/shared/model.ts';
+import { assertMediaDownloadUrl } from '../../packages/capture-core/endpoints.ts';
 import { isSystem, mediaIdentity, sourceUpdatedAt } from '../../packages/capture-core/history.ts';
 
 // Compare user-visible content, not parser output, delivery/read metadata or signed URL credentials.
@@ -228,7 +229,7 @@ export class Archive {
     assertText(assetId, 'asset id', 64);
     const asset = this.db.prepare('SELECT * FROM assets WHERE id=?').get(assetId) as Row | undefined;
     if (!asset || !['pending', 'failed'].includes(String(asset.status))) throw new Error('Media is not ready for download');
-    if (!/^https?:\/\//.test(String(asset.url))) throw new Error('Blob/segmented media needs a site-specific adapter');
+    assertMediaDownloadUrl(String(asset.url));
     const jobId = randomUUID();
     const extensions: Record<string, string> = { image: 'jpg', sticker: 'webp', audio: 'ogg', video: 'mp4', file: 'bin' };
     const suffix = `SaleSmartlyArchive/${jobId}/${assetId}.${extensions[String(asset.kind)] || 'bin'}`;

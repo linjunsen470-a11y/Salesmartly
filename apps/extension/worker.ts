@@ -1,4 +1,5 @@
 import { hintsFromRequest, normalizeResponse, parseLosslessJson } from '../../packages/capture-core/normalize.ts';
+import { archiveEndpoint, isObservedEndpoint } from '../../packages/capture-core/endpoints.ts';
 import { isSaleSmartlyUrl, RESPONSE_LIMIT, type CaptureBatch, type MediaJob, type RequestHints } from '../../packages/shared/model.ts';
 import { batchActive, batchTab, batchNavigationExpected, batchStart, batchResume, batchPause, batchReceive, batchCommand } from './batch.ts';
 import { acknowledge, enqueue, queued } from './queue.ts';
@@ -74,7 +75,7 @@ async function start(tabId: number, namespace: string, mode: 'page' | 'debugger'
   if (state.running) await stop();
   if (mode === 'debugger') {
     await chrome.debugger.attach({ tabId }, '1.3');
-    try { await chrome.debugger.sendCommand({ tabId }, 'Network.enable', { maxTotalBufferSize: 16 * 1024 * 1024, maxResourceBufferSize: 4 * 1024 * 1024 }); }
+    try { await chrome.debugger.sendCommand({ tabId }, 'Network.enable', { maxTotalBufferSize: RESPONSE_LIMIT, maxResourceBufferSize: RESPONSE_LIMIT }); }
     catch (error) { await chrome.debugger.detach({ tabId }); throw error; }
   } else {
     await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['proxy.js'] });
@@ -95,7 +96,10 @@ function allowedEndpoint(url: string): boolean {
   try { const host = new URL(url).hostname; return host === 'salesmartly.com' || host.endsWith('.salesmartly.com'); }
   catch { return false; }
 }
-const isChatEndpoint = (url: string): boolean => /message|history|chat[-_/]?list|[/_-]msg(?:[/_-]|$)/i.test(url);
+const keepResponse = (source: string, messages: number): boolean => {
+  const kind = archiveEndpoint(source);
+  return kind === 'history' || kind === 'list' || kind === 'pin' || kind === 'legacy' || (kind === 'session' && messages > 0);
+};
 chrome.debugger.onEvent.addListener((target, method, event) => {
   void (async () => {
     await ready;
@@ -109,20 +113,19 @@ chrome.debugger.onEvent.addListener((target, method, event) => {
       requests.set(data.requestId, { source: `${url.origin}${url.pathname}`, hints: { ...hintsFromRequest(request.url, request.postData), namespace: state.namespace } });
     } else if (method === 'Network.responseReceived') {
       const request = requests.get(data.requestId); if (!request) return;
-      request.eligible = data.response.status >= 200 && data.response.status < 300 && (String(data.response.mimeType).includes('json') || isChatEndpoint(request.source));
+      request.eligible = data.response.status >= 200 && data.response.status < 300 && isObservedEndpoint(request.source);
     } else if (method === 'Network.loadingFinished') {
       const request = requests.get(data.requestId); requests.delete(data.requestId);
       if (!request?.eligible) return;
-      if (data.encodedDataLength > 4 * 1024 * 1024) { state.warnings = ['响应超过 4 MB，未采集；需要调整会话适配器']; await save(); return; }
+      if (data.encodedDataLength > RESPONSE_LIMIT) { state.warnings = ['响应超过 16 MB，未采集；该页未被当成空历史']; await save(); return; }
       try {
         const response = await chrome.debugger.sendCommand({ tabId: state.tabId! }, 'Network.getResponseBody', { requestId: data.requestId }) as { body: string; base64Encoded: boolean };
-        if (response.body.length > 4 * 1024 * 1024) return;
+        if (response.body.length > RESPONSE_LIMIT) { state.warnings = ['响应超过 16 MB，未采集；该页未被当成空历史']; await save(); return; }
         const body = response.base64Encoded ? new TextDecoder().decode(Uint8Array.from(atob(response.body), c => c.charCodeAt(0))) : response.body;
         const parsed = parseLosslessJson(body);
         const batch = normalizeResponse(parsed, request.hints, request.source, 'probe');
-        // Keep only chat-like responses; do not archive general account/settings payloads.
-        if (batch.messages.length || isChatEndpoint(request.source)) await storeResponse(parsed, request.hints, request.source);
-      } catch (error) { if (isChatEndpoint(request.source)) await fail(`响应采集失败：${(error as Error).message}`); }
+        if (keepResponse(request.source, batch.messages.length)) await storeResponse(parsed, request.hints, request.source);
+      } catch (error) { if (isObservedEndpoint(request.source)) await fail(`响应采集失败：${(error as Error).message}`); }
     } else if (method === 'Network.loadingFailed') requests.delete(data.requestId);
     else if (method === 'Network.webSocketFrameReceived' && data.response.opcode === 1 && data.response.payloadData.length < 240_000) {
       try {
@@ -258,8 +261,8 @@ chrome.runtime.onMessage.addListener((request, sender, reply) => {
         try {
           const parsed = parseLosslessJson(payload.body), hints = { ...payload.hints, namespace: state.namespace };
           const normalized = normalizeResponse(parsed, hints, source, crypto.randomUUID());
-          if (!await batchReceive(parsed, hints, source, normalized, storeBatch) && (normalized.messages.length || isChatEndpoint(source))) await storeBatch(normalized);
-        } catch (error) { if (isChatEndpoint(source)) { await batchPause((error as Error).message); state.running = false; await fail(`页面响应采集失败：${(error as Error).message}`); throw error; } }
+          if (!await batchReceive(parsed, hints, source, normalized, storeBatch) && keepResponse(source, normalized.messages.length)) await storeBatch(normalized);
+        } catch (error) { if (isObservedEndpoint(source)) { await batchPause((error as Error).message); state.running = false; await fail(`页面响应采集失败：${(error as Error).message}`); throw error; } }
         return null;
       }
       case 'stop': await stop(); return state;

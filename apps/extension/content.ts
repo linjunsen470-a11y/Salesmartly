@@ -1,4 +1,5 @@
 import './driver.ts';
+import { jobHeadline } from './job-text.ts';
 const widgetId = 'salesmartly-local-archive-widget';
 document.getElementById(widgetId)?.remove();
 const container = document.createElement('div'); container.id = widgetId;
@@ -43,11 +44,11 @@ async function refresh(): Promise<void> {
     const missing = media.filter((entry: any) => ['failed', 'unsupported'].includes(entry.status)).reduce((sum: number, entry: any) => sum + entry.count, 0);
     const pending = media.filter((entry: any) => ['pending', 'downloading'].includes(entry.status)).reduce((sum: number, entry: any) => sum + entry.count, 0);
     if (job) {
-      const totals = job.totals, labels: Record<string, string> = { running: '采集中', paused: '已暂停', complete: '消息采集完成', partial: '已结束，部分范围未确认', cancelled: '已结束' };
+      const totals = job.totals, headline = jobHeadline(job);
       const processed = (totals.complete || 0) + (totals.partial || 0);
       const waiting = totals.waiting ?? Math.max(0, (totals.total || 0) - processed);
       const from = job.options.mode === 'date' ? new Date(Date.parse(job.options.from) + 8 * 3600_000).toISOString().slice(0, 10) : '';
-      node('progress').textContent = `${labels[job.status] || job.status} · ${job.phase}\n${from ? '本次范围：' + from + ' 至任务启动时\n' : ''}${from && job.options.scope.sort === 'desc' ? '日期内候选客户' : '已发现'} ${totals.total || 0} 位 · 已处理 ${processed} 位 · 待处理 ${waiting} 位\n范围已确认 ${totals.complete || 0} 位 · 缺口 ${totals.partial || 0} 位\n本次消息观察 ${totals.observed || 0} 次 · 新增 ${totals.inserted || 0} · 更新 ${totals.changed || 0} · 重复跳过 ${totals.unchanged || 0}\n档案库媒体：已保存 ${downloaded} · 待处理 ${pending} · 缺失 ${missing}`;
+      node('progress').textContent = `${headline} · ${job.phase}\n${from ? '本次范围：' + from + ' 至任务启动时\n' : ''}${from && job.options.scope.sort === 'desc' ? '日期内候选客户' : '已发现'} ${totals.total || 0} 位 · 已处理 ${processed} 位 · 待处理 ${waiting} 位\n范围已确认 ${totals.complete || 0} 位 · 缺口 ${totals.partial || 0} 位\n本次消息观察 ${totals.observed || 0} 次 · 新增 ${totals.inserted || 0} · 更新 ${totals.changed || 0} · 重复跳过 ${totals.unchanged || 0}\n档案库媒体：已保存 ${downloaded} · 待处理 ${pending} · 缺失 ${missing}`;
       contact.textContent = job.current?.profile ? `客户原名：${job.current.profile.originalName || '未取得'} · 手机：${job.current.profile.phone || '未取得'} · 所属账号：${job.current.channelName}` : '';
       node('pause').hidden = job.status !== 'running'; node('resume').hidden = !['paused', 'partial'].includes(job.status); node('resume').textContent = job.status === 'partial' ? '重试未完成部分' : job.options.scope.view !== '全部' ? '继续旧任务' : '继续'; node('start').hidden = job.status === 'running'; node('start').textContent = job.status === 'paused' ? '新建“全部”采集' : '开始采集全部会话';
       gaps.textContent = (job.gaps || []).map((item: any) => `${item.name}：${item.reason}`).join('\n'); gaps.style.whiteSpace = 'pre-line';

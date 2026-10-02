@@ -15,7 +15,7 @@ const customer: Customer = { projectId: 'demo-project', customerId: 'demo-custom
 test('three repeats and changing session/channel metadata keep one message, one revision and one asset', async () => {
   const store = await archive();
   try {
-    const item = message({ attachments: [{ slot: '0', kind: 'image', url: 'https://cdn.example/image.jpg?X-Amz-Signature=a' }] });
+    const item = message({ attachments: [{ slot: '0', kind: 'image', url: 'https://assets.salesmartly.com/image.jpg?X-Amz-Signature=a' }] });
     store.capture(batch([item]));
     for (let index = 0; index < 3; index++) {
       const result = store.capture(batch([{ ...item, direction: 'outgoing', scope: { ...item.scope, channelAccountId: 'filled-in-channel', conversationId: 'new-session' }, raw: { ...item.raw as any, read_time: index } }], `repeat-${index}`));
@@ -40,19 +40,19 @@ test('signed URL refresh preserves downloaded files; replacement detaches old fi
   const store = await archive();
   try {
     const media = (url: string) => message({ type: '2', attachments: [{ slot: '0', kind: 'image' as const, url }] });
-    store.capture(batch([media('https://cdn.example/a.png?X-Amz-Signature=one')]));
+    store.capture(batch([media('https://assets.salesmartly.com/a.png?X-Amz-Signature=one')]));
     const asset = store.pendingMedia()[0], plan = store.planDownload(asset.id); store.bindDownload(plan.jobId, 1);
     const staging = path.join(store.root, 'downloads', plan.suffix.replace(/\.jpg$/, '.png')); await mkdir(path.dirname(staging), { recursive: true }); await writeFile(staging, png);
     const result: any = await store.importDownload(plan.jobId, 1, staging);
     assert.equal(store.db.prepare('SELECT sha256 FROM assets').get()!.sha256, null); assert.ok((await stat(result.path)).size);
     await assert.rejects(stat(staging), /ENOENT/);
-    store.capture(batch([media('https://cdn.example/a.png?X-Amz-Signature=two')], 'refresh'));
+    store.capture(batch([media('https://assets.salesmartly.com/a.png?X-Amz-Signature=two')], 'refresh'));
     assert.equal(store.db.prepare('SELECT status FROM assets').get()!.status, 'downloaded'); assert.equal((store.stats() as any).versions, 1);
-    store.capture(batch([media('https://cdn.example/b.png')], 'replace'));
+    store.capture(batch([media('https://assets.salesmartly.com/b.png')], 'replace'));
     assert.equal(store.db.prepare('SELECT path FROM assets').get()!.path, null); assert.equal(store.pendingMedia().length, 1); assert.ok((await stat(result.path)).size);
     const stale = store.planDownload(asset.id); store.bindDownload(stale.jobId, 2);
     const oldStaging = path.join(store.root, 'downloads', stale.suffix); await mkdir(path.dirname(oldStaging), { recursive: true }); await writeFile(oldStaging, png);
-    store.capture(batch([media('https://cdn.example/c.png')], 'replace-again'));
+    store.capture(batch([media('https://assets.salesmartly.com/c.png')], 'replace-again'));
     await assert.rejects(store.importDownload(stale.jobId, 2, oldStaging), /旧下载/); store.failDownload(stale.jobId, 'stale');
     assert.equal(store.pendingMedia().length, 1);
   } finally { store.close(); }

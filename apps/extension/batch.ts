@@ -1,5 +1,7 @@
 import { host } from './bridge.ts';
 import { customerPagePlan, customersFromList, isSystem, pageBoundary, paginationDetails } from '../../packages/capture-core/history.ts';
+import { archiveEndpoint } from '../../packages/capture-core/endpoints.ts';
+import { reachedCustomerCap } from './job-text.ts';
 import { sameScope } from './scope.ts';
 import { isSaleSmartlyUrl, type BatchOptions, type CaptureBatch, type Customer, type RequestHints } from '../../packages/shared/model.ts';
 
@@ -86,7 +88,7 @@ export async function batchResume(startCapture: (tabId: number) => Promise<void>
 export async function batchReceive(data: any, hints: RequestHints, source: string, capture: CaptureBatch, store: (capture: CaptureBatch) => Promise<void>): Promise<boolean> {
   await ready;
   if (!batch?.active) return false;
-  if (/get-chat-list$/.test(source)) {
+  if (archiveEndpoint(source) === 'list') {
     const job = await host<any>('job', { jobId: batch.jobId });
     // Request-time UI scope prevents a late response from a different filter joining this queue.
     if (hints.scopeContext && !sameScope(hints.scopeContext, job.options.scope)) return true;
@@ -105,10 +107,13 @@ export async function batchReceive(data: any, hints: RequestHints, source: strin
     await host('capture', { batchId: crypto.randomUUID(), capturedAt: new Date().toISOString(), source: 'customer-list', messages: [], warnings: [], boundary: 'unknown', diagnostic: { event: 'customer-list', customers: list.customers.length, listed: customers.length, skippedBeforeDate: plan.skipped, dateBoundary: plan.dateBoundary, dataKeys: Object.keys(data?.data || {}), pagination: paginationDetails(data), request: hints.parameters } });
     await save(); return true;
   }
-  if (!/get-message-list$/.test(source)) return true;
-  if (!batch.scopeVerified || !batch.currentId) { initialHistory = { data, hints, source, capture }; return true; }
-  if (data?.code !== undefined && ![0, '0', 200, '200'].includes(data.code)) throw new Error(`聊天加载失败：${String(data.msg || data.code)}`);
-  if (capture.warnings.some(warning => /部分内容未解析|缺少项目或客户/.test(warning))) throw new Error(capture.warnings.join('；'));
+  const kind = archiveEndpoint(source);
+  if (kind !== 'history' && kind !== 'pin') return true;
+  // Pinned messages are archived, but a short pin list must not end the history scroll.
+  if (kind === 'pin' && (!batch.scopeVerified || !batch.currentId)) return true;
+  if (kind === 'history' && (!batch.scopeVerified || !batch.currentId)) { initialHistory = { data, hints, source, capture }; return true; }
+  if (data?.code !== undefined && ![0, '0', 200, '200'].includes(data.code)) { if (kind === 'pin') return true; throw new Error(`聊天加载失败：${String(data.msg || data.code)}`); }
+  if (capture.warnings.some(warning => /部分内容未解析|缺少项目或客户/.test(warning))) { if (kind === 'pin') return true; throw new Error(capture.warnings.join('；')); }
   const project = capture.messages[0]?.scope.projectId || hints.projectId;
   if (project?.startsWith('local:')) throw new Error('未识别真实项目 ID，已暂停以防跨账号混合');
   if (project && batch.projectId && project !== batch.projectId) throw new Error('消息来自不同项目，已暂停');
@@ -124,6 +129,7 @@ export async function batchReceive(data: any, hints: RequestHints, source: strin
   if (capture.messages.some(message => message.scope.customerId !== customerId || message.scope.projectId !== batch!.projectId)) throw new Error('历史响应混入其他客户，已暂停');
   const job = await host<any>('job', { jobId: batch.jobId }), records = capture.messages.filter(message => !isSystem(message.raw));
   if (!capture.messages.length) {
+    if (kind === 'pin') return true;
     const value = data?.data, rows = Array.isArray(value) ? value : value?.list ?? value?.messages ?? value?.message_list;
     if (!Array.isArray(rows) || rows.length) throw new Error('消息响应未匹配已知列表结构，未把解析失败当成历史末尾');
   }
@@ -137,7 +143,7 @@ export async function batchReceive(data: any, hints: RequestHints, source: strin
   const pagination = paginationDetails(data);
   await store({ ...capture, messages, jobId: batch.jobId, diagnostic: { rootKeys: Object.keys(data || {}), dataKeys: envelope && !Array.isArray(envelope) ? Object.keys(envelope) : [], pagination, request: hints.parameters } });
   // Exposed only after all native ACKs. Driver cannot advance on uncommitted responses.
-  history = { seq: ++seq, customerId, projectId: batch.projectId, messages: records.map(message => ({ id: message.sourceId, time: message.sentAt, known: known.includes(message.sourceId) })), ...pageBoundary(data), incremental: info.incremental, target: info.target, warnings: capture.warnings };
+  if (kind === 'history') history = { seq: ++seq, customerId, projectId: batch.projectId, messages: records.map(message => ({ id: message.sourceId, time: message.sentAt, known: known.includes(message.sourceId) })), ...pageBoundary(data), incremental: info.incremental, target: info.target, warnings: capture.warnings };
   await save(); return true;
 }
 export async function batchCommand(request: any, senderTabId?: number, store?: (capture: CaptureBatch) => Promise<void>): Promise<unknown> {
@@ -184,7 +190,8 @@ export async function batchCommand(request: any, senderTabId?: number, store?: (
       const job = await host<any>('job', { jobId });
       batch.active = false; await save();
       const complete = job.enumeration_complete && Number(job.totals.complete || 0) === Number(job.totals.total || 0);
-      return host('updateJob', { jobId, status: complete ? 'complete' : 'partial', phase: complete ? job.totals.total ? '任务结束' : '所选日期后没有可采集会话' : !job.enumeration_complete ? '已处理发现的客户；客户列表范围未确认' : `${job.totals.partial || 0} 位客户的历史范围未确认`, error: '' });
+      const capped = complete && reachedCustomerCap(job);
+      return host('updateJob', { jobId, status: complete ? 'complete' : 'partial', phase: complete ? capped ? `已达到 ${job.options.customerLimit} 位客户上限` : job.totals.total ? '任务结束' : '所选日期后没有可采集会话' : !job.enumeration_complete ? '已处理发现的客户；客户列表范围未确认' : `${job.totals.partial || 0} 位客户的历史范围未确认`, error: '' });
     }
     default: throw new Error('未知的批量操作');
   }

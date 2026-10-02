@@ -17,12 +17,13 @@ export async function ensureDescending(): Promise<void> {
   const more = document.querySelector<HTMLElement>('.session-list__filter__header__icon__item:has(.icon-more)');
   if (!more) throw new Error('未找到列表排序设置，未采用日期截止优化');
   more.click(); await delay();
-  const settings = exactVisible(document, '.arco-trigger-content span,.arco-trigger-content div', '列表设置') || exactVisible(document, 'span', '列表设置');
+  const mentions = (node: Element, pattern: RegExp) => pattern.test((node.textContent || '').replace(/\s+/g, ''));
+  const settings = [...document.querySelectorAll<HTMLElement>('.arco-trigger-content span,.arco-trigger-content div,span')].find(node => visible(node) && mentions(node, /列表设置/));
   if (!settings) throw new Error('未找到“列表设置”入口'); settings.click();
   const end = Date.now() + 8_000; let modal: Element | undefined;
-  while (Date.now() < end) { modal = [...document.querySelectorAll('.arco-modal')].find(node => visible(node) && node.querySelector('.arco-modal-title')?.textContent?.trim() === '列表设置'); if (modal) break; await delay(); }
+  while (Date.now() < end) { modal = [...document.querySelectorAll('.arco-modal')].find(node => visible(node) && mentions(node.querySelector('.arco-modal-title') || node, /列表设置/)); if (modal) break; await delay(); }
   if (!modal) throw new Error('列表排序对话框未加载');
-  const label = exactVisible(modal, 'label', '按消息时间倒序排序'), radio = label?.querySelector<HTMLInputElement>('input[type="radio"]');
+  const label = [...modal.querySelectorAll<HTMLElement>('label')].find(node => visible(node) && mentions(node, /消息时间/) && mentions(node, /倒序/)), radio = label?.querySelector<HTMLInputElement>('input[type="radio"]');
   if (!radio) { cancel(modal); throw new Error('未识别消息时间倒序选项'); }
   if (!radio.checked) { label!.click(); await delay(); }
   if (!radio.checked) { cancel(modal); throw new Error('未能启用消息时间倒序'); }

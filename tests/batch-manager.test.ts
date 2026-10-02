@@ -115,6 +115,39 @@ test('initial active-chat responses survive scope verification, bind to the sele
     ], next_page: '1' } }, { projectId: 'demo-project', scopeContext: scope }, 'https://api.salesmartly.com/chat/chat/get-chat-list', batch([], 'late-earlier-list'), store);
     assert.equal((await manager.batchCommand({ op: 'batchSnapshot' }, 2) as any).list.hasMore, false, 'A delayed earlier page cannot reopen a proven date cutoff');
     await manager.batchPause('fixture finished');
+    const historyJob: any = await manager.batchStart(1, options, async () => {});
+    await manager.batchCommand({ op: 'batchScopeConfirmed', scope, unchanged: true }, 2, store);
+    await manager.batchReceive({ code: 0, data: { list: [
+      { project_id: 'demo-project', chat_user_id: 'demo-customer', id: 'demo-session', name: 'First' },
+    ], next_page: '0' } }, { projectId: 'demo-project', scopeContext: scope }, 'https://api.salesmartly.com/chat/chat/get-chat-list', batch([], 'history-list'), store);
+    await manager.batchCommand({ op: 'batchSelect', customerId: 'demo-customer' }, 2, store);
+    const historyBody = { code: 0, data: { list: [{}], page: 1, page_size: 20, next_pk: { chat_user_id: 'demo-customer', sequence_id: '20' }, package_limit: '0' } };
+    await manager.batchReceive(historyBody, { projectId: 'demo-project', customerId: 'demo-customer' }, 'https://api.salesmartly.com/chat/chat-user/get-chat-history-message-list', batch([message({ sourceId: 'older-page' })], 'older-page'), store);
+    let snap: any = await manager.batchCommand({ op: 'batchSnapshot' }, 2);
+    assert.equal(snap.history.messages[0].id, 'older-page');
+    assert.equal(snap.history.hasMore, true);
+    const historySeq = snap.history.seq;
+    await manager.batchReceive({ code: 0, data: { list: [{}] } }, { projectId: 'demo-project', customerId: 'demo-customer' }, 'https://api.salesmartly.com/chat/chat-user/get-pin-message-list', batch([message({ sourceId: 'pinned' })], 'pinned'), store);
+    snap = await manager.batchCommand({ op: 'batchSnapshot' }, 2);
+    assert.equal(snap.history.seq, historySeq, 'Pinned messages must not replace the history page');
+    assert.equal(snap.history.messages[0].id, 'older-page');
+    assert.equal((archive.job(historyJob.id) as any).totals.observed, 2);
+    await manager.batchReceive({ code: 0, data: { unexpected: true } }, { projectId: 'demo-project', customerId: 'demo-customer' }, 'https://api.salesmartly.com/chat/chat-user/get-chat-history-message-text-list', batch([message({ sourceId: 'search-hit' })], 'search-hit'), store);
+    snap = await manager.batchCommand({ op: 'batchSnapshot' }, 2);
+    assert.equal(snap.history.seq, historySeq);
+    assert.equal((archive.job(historyJob.id) as any).totals.observed, 2);
+    await manager.batchPause('fixture finished');
+    const capped: any = await manager.batchStart(1, { ...options, customerLimit: 1 }, async () => {});
+    await manager.batchCommand({ op: 'batchScopeConfirmed', scope, unchanged: true }, 2, store);
+    await manager.batchReceive(list, { projectId: 'demo-project', scopeContext: scope }, 'https://api.salesmartly.com/chat/chat/get-chat-list', batch([], 'cap-list'), store);
+    const queued = archive.jobCustomers(capped.id) as any[];
+    assert.equal(queued.length, 1);
+    await manager.batchCommand({ op: 'batchEnumerated', complete: true }, 2);
+    await manager.batchCommand({ op: 'batchCustomerDone', customerId: queued[0].customer_id, complete: true, reason: 'fixture' }, 2);
+    await manager.batchCommand({ op: 'batchFinish' }, 2);
+    const finished: any = archive.job(capped.id);
+    assert.equal(finished.status, 'complete');
+    assert.match(finished.phase, /1 位客户上限/);
   } finally {
     archive.close();
     if (previous) Object.defineProperty(globalThis, 'chrome', previous); else Reflect.deleteProperty(globalThis, 'chrome');

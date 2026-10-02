@@ -74,7 +74,7 @@ test('a transaction error rolls back every row and does not ACK the batch', asyn
 test('registered download import validates ID/path/format and creates portable safe HTML', async () => {
   const store = await archive();
   try {
-    store.capture(batch([message({ text: '<script>alert(1)</script>', attachments: [{ slot: '0', kind: 'image', url: 'https://example.com/a', filename: '图像 "名字".png' }] }), message({ sourceId: 'm2', type: '12', attachments: [{ slot: '0', kind: 'audio', url: 'https://example.com/missing' }] })]));
+    store.capture(batch([message({ text: '<script>alert(1)</script>', attachments: [{ slot: '0', kind: 'image', url: 'https://assets.salesmartly.com/a', filename: '图像 "名字".png' }] }), message({ sourceId: 'm2', type: '12', attachments: [{ slot: '0', kind: 'audio', url: 'https://assets-cdn.salesmartly.com/missing' }] })]));
     const asset = store.pendingMedia()[0], plan = store.planDownload(asset.id); store.bindDownload(plan.jobId, 17);
     const staging = path.join(store.root, 'downloads', plan.suffix.replace(/\.[a-z]+$/, '.png')); await mkdir(path.dirname(staging), { recursive: true }); await writeFile(staging, png);
     await assert.rejects(store.importDownload(plan.jobId, 18, staging), /registered/);
@@ -86,6 +86,15 @@ test('registered download import validates ID/path/format and creates portable s
     const document = await readFile(output.path, 'utf8'); assert.ok(document.includes('&lt;script&gt;')); assert.ok(!document.includes('<script>')); assert.ok(!document.includes('src="https:')); assert.ok(document.includes('未取得文件'));
     const manifest = JSON.parse(await readFile(path.join(path.dirname(output.path), 'manifest.json'), 'utf8')); assert.equal(manifest.historyBoundary, 'unknown');
     const assetCopy = await readFile(path.join(path.dirname(output.path), 'media', path.basename(result.path))); assert.deepEqual(assetCopy, png);
+  } finally { store.close(); }
+});
+test('media downloads stay on confirmed file hosts', async () => {
+  const store = await archive();
+  try {
+    store.capture(batch([message({ attachments: [{ slot: '0', kind: 'image', url: 'https://app.salesmartly.com/next/chat' }] }), message({ sourceId: 'oss', attachments: [{ slot: '0', kind: 'image', url: 'https://mix-ads.oss-ap-southeast-1.aliyuncs.com/a.jpg' }] })]));
+    const pending = store.pendingMedia();
+    assert.throws(() => store.planDownload(pending.find(item => item.url.includes('app.salesmartly.com'))!.id), /已确认的文件域名/);
+    assert.match(store.planDownload(pending.find(item => item.url.includes('aliyuncs.com'))!.id).url, /^https:\/\/mix-ads\.oss-ap-southeast-1\.aliyuncs\.com\//);
   } finally { store.close(); }
 });
 test('HTML error responses and media with the wrong type are rejected', () => {
