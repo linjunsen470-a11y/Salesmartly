@@ -1,0 +1,25 @@
+{
+  "name": "salesmartly-browser-archive",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "check": "tsc --noEmit",
+    "test": "node --test --test-isolation=none tests/*.test.ts",
+    "demo": "node tools/demo.ts",
+    "inspect": "node apps/native-host/cli.ts",
+    "setup": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/setup-native.ps1",
+    "setup:register": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/setup-native.ps1 -Register"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.3.4",
+    "@types/node": "24.19.0",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}

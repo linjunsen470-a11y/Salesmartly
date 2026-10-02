@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.local/
+archives/
+*.db
+*.db-shm
+*.db-wal
+.env
+*.har
+*.network-response
+*.network-request
