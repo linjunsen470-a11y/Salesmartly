@@ -18,7 +18,8 @@ export async function ensureDescending(): Promise<void> {
   if (!more) throw new Error('未找到列表排序设置，未采用日期截止优化');
   more.click(); await delay();
   const mentions = (node: Element, pattern: RegExp) => pattern.test((node.textContent || '').replace(/\s+/g, ''));
-  const settings = [...document.querySelectorAll<HTMLElement>('.arco-trigger-content span,.arco-trigger-content div,span')].find(node => visible(node) && mentions(node, /列表设置/));
+  // The header icon also contains the text “列表设置”. Only the open dropdown row opens the dialog.
+  const settings = [...document.querySelectorAll<HTMLElement>('.arco-dropdown-option')].find(node => visible(node) && (node.textContent || '').replace(/\s+/g, '') === '列表设置');
   if (!settings) throw new Error('未找到“列表设置”入口'); settings.click();
   const end = Date.now() + 8_000; let modal: Element | undefined;
   while (Date.now() < end) { modal = [...document.querySelectorAll('.arco-modal')].find(node => visible(node) && mentions(node.querySelector('.arco-modal-title') || node, /列表设置/)); if (modal) break; await delay(); }

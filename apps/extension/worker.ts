@@ -165,7 +165,12 @@ async function recoverDownloadsInner(): Promise<void> {
 let mediaRunning = false;
 let mediaTimer: ReturnType<typeof setTimeout> | undefined;
 let automaticMedia = false;
+async function textOnly(): Promise<boolean> {
+  const stored = await chrome.storage.local.get('textOnly');
+  return stored.textOnly === true;
+}
 async function pumpMedia(): Promise<void> {
+  if (await textOnly()) { automaticMedia = false; return; }
   automaticMedia = true;
   if (mediaRunning) return;
   await downloadMedia(false);
@@ -175,6 +180,7 @@ async function pumpMedia(): Promise<void> {
   } else automaticMedia = false;
 }
 async function downloadMedia(retry: boolean): Promise<{ scheduled: number }> {
+  if (await textOnly()) return { scheduled: 0 };
   if (mediaRunning) throw new Error('媒体下载任务正在调度');
   mediaRunning = true; let scheduled = 0;
   try {

@@ -81,6 +81,30 @@ async function waitHistory(customerId: string, after: number): Promise<any> {
   while (Date.now() < end) { const state = await snapshot(); if (state.history?.seq > after && state.history.customerId === customerId) return state.history; await delay(); }
   throw new Error('等待聊天历史响应超时；未把超时当成历史末尾');
 }
+async function pullOlder(customerId: string, after: number): Promise<any> {
+  // The history response arrives before Vue paints it. Scrolling then is a no-op,
+  // and the virtual list afterwards anchors to the newest messages. Wait until the
+  // scroller is actually taller than the viewport, leave the top, then re-enter it.
+  // Repeat that gesture until an older page is committed; one early scroll is not enough.
+  const end = Date.now() + 15_000;
+  let nudgedAt = 0;
+  while (Date.now() < end) {
+    const state = await snapshot();
+    if (state.history?.seq > after && state.history.customerId === customerId) return state.history;
+    const node = document.querySelector<HTMLElement>('.message-list__scroller');
+    const overflow = node ? Math.max(0, node.scrollHeight - node.clientHeight) : 0;
+    if (node && overflow > 40 && Date.now() - nudgedAt >= 750) {
+      scroll(node, Math.min(node.clientHeight, overflow));
+      await delay(150);
+      const current = document.querySelector<HTMLElement>('.message-list__scroller') || node;
+      scroll(current, 0);
+      nudgedAt = Date.now();
+      continue;
+    }
+    await delay(200);
+  }
+  throw new Error('等待聊天历史响应超时；未把超时当成历史末尾');
+}
 async function selectCustomer(customer: Customer): Promise<void> {
   (await locateCustomer(customer)).click();
   const end = Date.now() + 8_000;
@@ -150,14 +174,7 @@ async function collect(customer: Customer, options: BatchOptions): Promise<void>
     await call('batchPhase', { phase: `采集 ${customer.name} · 已检查 ${unique.size} 条${oldest ? ' · 加载到 ' + new Date(Date.parse(oldest) + 8 * 3600_000).toISOString().slice(0, 10) : ''}` });
     const result = historyDecision(options, { unique: unique.size, known: known.size, oldest, unknownTime, hasMore: page.hasMore, incremental: page.incremental, target: page.target, restricted: page.restricted });
     if (result.done) { await call('batchCustomerDone', { customerId: customer.customerId, complete: result.complete, reason: result.reason, oldest }); return; }
-    const node = scroller('.message-list__scroller');
-    // Let Vue finish prepending the previous page, then leave and re-enter the
-    // top loading region on separate frames. Two synchronous 2px events collapse.
-    await delay(250);
-    scroll(node, Math.min(node.clientHeight, Math.max(0, node.scrollHeight - node.clientHeight)));
-    await delay(150);
-    scroll(node, 0);
-    try { page = await waitHistory(customer.customerId, page.seq); }
+    try { page = await pullOlder(customer.customerId, page.seq); }
     catch (error) { await call('batchCustomerDone', { customerId: customer.customerId, complete: false, reason: (error as Error).message, oldest }); return; }
   }
   await call('batchCustomerDone', { customerId: customer.customerId, complete: false, reason: '单客户加载次数达到上限，请缩小日期范围', oldest });

@@ -42,7 +42,7 @@ function contextFixture(withFilters = true) {
       if (selector === '.view-list__area__item') return [my, all];
       if (selector === '.session-list__filter__tabs__item') return [status];
       if (selector === '.filter-popover') return [popup];
-      if (selector.includes('.arco-trigger-content')) return [settings];
+      if (selector.includes('.arco-dropdown-option') || selector.includes('.arco-trigger-content')) return [settings];
       if (selector === '.arco-modal') return [modal];
       return [];
     },
