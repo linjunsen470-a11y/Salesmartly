@@ -12,8 +12,8 @@
     "test": "node --test --test-isolation=none tests/*.test.ts",
     "demo": "node tools/demo.ts",
     "inspect": "node apps/native-host/cli.ts",
-    "setup": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/setup-native.ps1",
-    "setup:register": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/setup-native.ps1 -Register"
+    "setup": "node tools/setup-native.ts",
+    "setup:register": "node tools/setup-native.ts --register"
   },
   "devDependencies": {
     "@types/chrome": "0.3.4",

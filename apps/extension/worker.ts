@@ -71,7 +71,7 @@ async function start(tabId: number, namespace: string, mode: 'page' | 'debugger'
   const tab = await chrome.tabs.get(tabId);
   if (!isSaleSmartlyUrl(tab.url || tab.pendingUrl)) throw new Error('请选择当前 Profile 中 app.salesmartly.com 的已登录标签页');
   if (!namespace.trim() || namespace.length > 128) throw new Error('请填写项目归档标识');
-  await host('hello'); await flush();
+  await connectHost(); await flush();
   if (state.running) await stop();
   if (mode === 'debugger') {
     await chrome.debugger.attach({ tabId }, '1.3');
@@ -165,6 +165,11 @@ async function recoverDownloadsInner(): Promise<void> {
 let mediaRunning = false;
 let mediaTimer: ReturnType<typeof setTimeout> | undefined;
 let automaticMedia = false;
+async function connectHost(): Promise<{ textOnly?: boolean }> {
+  const hello = await host<{ textOnly?: boolean }>('hello');
+  if (hello?.textOnly === true) await chrome.storage.local.set({ textOnly: true });
+  return hello;
+}
 async function textOnly(): Promise<boolean> {
   const stored = await chrome.storage.local.get('textOnly');
   return stored.textOnly === true;
@@ -236,7 +241,7 @@ chrome.runtime.onMessage.addListener((request, sender, reply) => {
       case 'tabs': return (await chrome.tabs.query({ url: 'https://app.salesmartly.com/*' })).map(tab => ({ id: tab.id, title: tab.title, url: tab.url }));
       case 'showPanel': { const tab = await chrome.tabs.get(Number(request.tabId)); if (!isSaleSmartlyUrl(tab.url)) throw new Error('请选择 SaleSmartly 聊天页'); await chrome.scripting.executeScript({ target: { tabId: tab.id! }, files: ['content.js'] }); await chrome.tabs.update(tab.id!, { active: true }); return null; }
       case 'state': return { ...state, queued: (await queued()).length };
-      case 'connect': { const hello = await host('hello'); state.hostConnected = true; state.error = ''; await flush(); await recoverDownloads(); return hello; }
+      case 'connect': { const hello = await connectHost(); state.hostConnected = true; state.error = ''; await flush(); await recoverDownloads(); return hello; }
       case 'start': await start(Number(request.tabId), String(request.namespace)); return state;
       case 'startHere': if (!saleSmartlySender || sender.tab?.id === undefined) throw new Error('请在 SaleSmartly 页面开始采集'); await start(sender.tab.id, String(request.namespace)); return state;
       case 'batchStart': {

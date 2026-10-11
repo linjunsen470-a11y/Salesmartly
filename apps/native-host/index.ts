@@ -23,7 +23,7 @@ async function main(): Promise<void> {
         const payload = (request.payload ?? {}) as Record<string, unknown>;
         let result: unknown;
         switch (request.op) {
-          case 'hello': result = { protocol: PROTOCOL_VERSION, version: '0.3.0', archiveRoot: archive.root }; break;
+          case 'hello': result = { protocol: PROTOCOL_VERSION, version: '0.3.0', archiveRoot: archive.root, textOnly: config.textOnly }; break;
           case 'capture': result = archive.capture(payload as never); break;
           case 'captureChunk': { const batch = assembler.accept(payload); result = batch ? { complete: true, ...archive.capture(batch) } : { complete: false }; break; }
           case 'stats': result = archive.stats(); break;

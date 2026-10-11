@@ -64,4 +64,24 @@ node tools/verify-v02.ts --scale
 
 需要 Node.js 24、Chrome 120+。本机助手已注册到当前 Windows 用户。移动项目目录后重新构建并运行 `npm run setup:register`。保留 `.local/extension-public-key.json` 可维持现有扩展 ID。
 
+Linux 云电脑使用同一条命令。在项目目录执行 `npm run build`，再执行 `npm run setup:register -- --text-only`。脚本把启动器写到 `.local/native/salesmartly-native`，并注册到 Chrome、Chromium 和 Chrome for Testing 的 `NativeMessagingHosts`。`--text-only` 写入本地助手配置；扩展下次连接时把 `textOnly` 设为真，不再调度媒体下载。
+
+用一块虚拟屏幕启动带界面的浏览器，不要加 `--headless`，也不要最小化。采集页进入后台会暂停。Chromium 和 Chrome for Testing 仍接受 `--load-extension`。正式版 Google Chrome 从 137 起忽略该参数，请改用前两者，或在 `chrome://extensions` 打开开发者模式后加载 `dist/extension` 一次。同一个用户目录会记住这次加载。
+
+```sh
+npm run build
+npm run setup:register -- --text-only
+Xvfb :99 -screen 0 1280x900x24 >/dev/null 2>&1 &
+DISPLAY=:99 chromium \
+  --user-data-dir="$PWD/.local/chrome-profile" \
+  --disable-background-timer-throttling \
+  --disable-renderer-backgrounding \
+  --disable-backgrounding-occluded-windows \
+  --no-first-run \
+  --load-extension="$PWD/dist/extension" \
+  https://app.salesmartly.com/next/chat
+```
+
+归档仍写入该机器上的 `.local/archive`。这个目录不进入 Git。
+
 已安装 v0.2.1 后，构建完成可在网页面板点击“更多选项 → 应用本地更新”；任务会保留并暂停。更新后可以继续同一任务，或新建“全部”任务。首次安装或仍使用旧版时才需要在 Chrome 扩展管理页手动加载。

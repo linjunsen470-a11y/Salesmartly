@@ -361,9 +361,10 @@ export class Archive {
   }
 }
 
-export async function loadConfig(filename: string): Promise<{ archiveRoot: string; extensionId: string }> {
+export async function loadConfig(filename: string): Promise<{ archiveRoot: string; extensionId: string; textOnly: boolean }> {
   const value = JSON.parse(await readFile(filename, 'utf8'));
   assertText(value.archiveRoot, 'archive root', 4096); assertText(value.extensionId, 'extension id', 32);
   if (!/^[a-p]{32}$/.test(value.extensionId) || !path.isAbsolute(value.archiveRoot)) throw new Error('Invalid host configuration');
-  return value;
+  if (value.textOnly !== undefined && typeof value.textOnly !== 'boolean') throw new Error('Invalid host configuration');
+  return { archiveRoot: value.archiveRoot, extensionId: value.extensionId, textOnly: value.textOnly === true };
 }
